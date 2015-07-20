@@ -1,0 +1,168 @@
+---
+title: "Practical Machine Learning Project"
+author: "datamick"
+date: "July 19, 2015"
+output: html_document
+---
+# Predicting Activity Quality from Activity Monitors
+## Introduction
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).*
+The goal of this project is to predict the manner in which they did the exercise(i.e. Class) using a training set and a test set provided below.
+
+The training data for this project are available here: 
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: 
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+*source: http://groupware.les.inf.puc-rio.br/har
+
+## Data Import
+
+#### Import the training and testing data
+```{r}
+trainorig <- read.csv("C:/Users/Mike/Desktop/Coursera/pml-training.csv",
+                        sep =",", header = TRUE, skip=0, stringsAsFactors = FALSE)
+testorig <- read.csv("C:/Users/Mike/Desktop/Coursera/pml-testing.csv",
+                      sep =",", header = TRUE, skip=0, stringsAsFactors = FALSE)
+```
+
+## Clean and Split Training Data
+#### Remove zero and near-zero variance predictors since they are non-informative now: 100 var
+
+```{r}
+library(caret)
+testtrain <- trainorig
+colnearzervar <- nearZeroVar(testtrain)
+testtrainnearzervar<- testtrain[, -colnearzervar]
+```
+
+#### Since prediction functions tend to fail if there are many NAs in the data, the columns  with more than 90% NAs are removed. now: 59 var
+
+```{r}
+testtrainnoNAs<- testtrainnearzervar[ lapply( testtrainnearzervar,
+function(x) sum(is.na(x)) / length(x) ) < 0.1 ]
+```
+
+#### Remove columns with no value to prediction now: 53 var
+
+```{r}
+basetrain <- subset(testtrainnoNAs, select=-c(X, user_name, raw_timestamp_part_1, raw_timestamp_part_2,
+cvtd_timestamp, num_window))
+```
+
+#### Split the training set into two subsets for (1)training and (2)cross-validation
+
+```{r}
+set.seed(55821)
+trainsplit<- createDataPartition(y=basetrain$classe, p=0.7, list=FALSE)
+trainingdata <- basetrain[trainsplit, ]
+trainingcrossval <- basetrain[-trainsplit, ]
+```
+
+## Clean Test Data
+
+```{r}
+testfinal <- testorig
+```
+
+#### Remove nearly zero variance variables
+
+```{r}
+colnearzervartest <- nearZeroVar(testfinal)
+testtestnearzervar<- testfinal[, -colnearzervartest]
+```
+
+#### Remove variables with disproportionate number of NA's now: 59 var
+
+```{r}
+testtestnoNAs<- testtestnearzervar[ lapply( testtestnearzervar,
+function(x) sum(is.na(x)) / length(x) ) < 0.1 ]
+```
+
+#### Remove columns with no value to prediction now: 53 var
+
+```{r}
+basetest <- subset(testtestnoNAs, select=-c(X, user_name, raw_timestamp_part_1, raw_timestamp_part_2,
+cvtd_timestamp, num_window))
+```
+
+## Model Building on Training Data
+
+```{r}
+library(randomForest)
+```
+
+#### Fit a 2-fold model on trainingdata
+This is the simplest variation of k-fold cross-validation. Also called holdout
+method.[8] For each fold, we randomly assign data points to two sets d0 and d1,
+so that both sets are equal size (this is usually implemented by shuffling the
+data array and then splitting it in two). We then train on d0 and test on d1,
+followed by training on d1 and testing on d0.
+This has the advantage that our training and test sets are both large, and each
+data point is used for both training and validation on each fold.*
+
+*https://en.wikipedia.org/wiki/Cross-validation_(statistics)
+
+```{r}
+crossvalfold <- trainControl(method="cv", number=2)
+modelcrossvalfold <- train(as.factor(classe) ~ ., data=trainingdata, method="rf",trControl=crossvalfold)
+modelcrossvalfold
+```
+
+## Model Evaluation and Selection
+
+#### The fitted model(modelcrossvalfold) is used to predict the label (“classe”) in other subset of the spit training data(trainingcrossval) via cross-validation.  
+
+```{r}
+predclassetrcrsval <- predict(modelcrossvalfold, newdata=trainingcrossval)
+```
+
+#### The confusion matrix is generated to compare the predicted vs. the actual values and to generate the estimate of out-of-sample error.
+
+```{r}
+confusionMatrix(trainingcrossval$classe, predclassetrcrsval)
+```
+
+#### Show the accuracy of the predicted(trainingdata) vs. actual(trainingcrossval) subsets.
+
+```{r}
+accuracypredvsactual <- postResample(predclassetrcrsval, as.factor(trainingcrossval$classe))
+accuracypredvsactual
+```
+
+#### Show the out-of-sample error found when testing the predicted vs. the actual.
+
+```{r}
+outofsampleerror <- 1 - as.numeric(confusionMatrix(as.factor(trainingcrossval$classe),
+predclassetrcrsval)$overall[1])
+outofsampleerror
+```
+
+#### The estimated accuracy of this model is 99.54%.  The estimated out-of-sample error using cross validation from the original training data is 0.46%.
+
+
+## Prediction of Training Set onto the Test Data
+
+#### Finally, the training model(modelcrossvalfold) is projected onto the cleaned test file (basetest).
+
+```{r}
+finalresult <- predict(modelcrossvalfold, newdata=basetest)
+finalresult
+```
+
+## Submitting the Results
+
+#### Create function to write predictions to files
+
+##### finalresult <- as.character(finalresult)
+##### pml_write_files <- function(x) {
+#####        n <- length(x)
+#####        for(i in 1:n) {
+#####                filename <- paste0("problem_id_", i, ".txt")
+#####                write.table(x[i], file=filename, quote=F, row.names=F, col.names=F)
+#####        }
+##### }
+
+#### Create prediction files to submit
+##### pml_write_files(finalresult)
